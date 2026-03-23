@@ -1,219 +1,511 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Star Runner Deluxe</title>
-  <style>
-    body {
-      margin: 0;
-      overflow: hidden;
-      font-family: Arial;
-      background: #020617;
-      color: white;
+import React, { useRef, useEffect, useState } from "react";
+
+const SAVE_KEY = "time_survival_save_v4";
+
+export default function TimeSurvivalGame() {
+  const canvasRef = useRef(null);
+
+  /* ---------------- SAVE / LOAD ---------------- */
+
+  const loadSave = () => {
+    try {
+      const data = localStorage.getItem(SAVE_KEY);
+      return data ? JSON.parse(data) : null;
+    } catch {
+      return null;
     }
+  };
 
-    #hud {
-      position: fixed;
-      top: 10px;
-      left: 10px;
-      font-size: 18px;
-      z-index: 10;
-    }
+  const saveGame = (state) => {
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify(state));
+    } catch {}
+  };
 
-    #player {
-      width: 45px;
-      height: 45px;
-      position: absolute;
-      border-radius: 12px;
-    }
+  const saveData = loadSave();
 
-    .skin-blue { background: cyan; }
-    .skin-red { background: hotpink; }
-    .skin-green { background: lime; }
+  /* ---------------- STATE ---------------- */
 
-    #star {
-      position: absolute;
-      font-size: 40px;
-      cursor: pointer;
-    }
+  const [health, setHealth] = useState(saveData?.health ?? 100);
+  const [maxHealth, setMaxHealth] = useState(saveData?.maxHealth ?? 100);
+  const [score, setScore] = useState(saveData?.score ?? 0);
+  const [gameOver, setGameOver] = useState(false);
+  const [level, setLevel] = useState(saveData?.level ?? 1);
+  const [day, setDay] = useState(saveData?.day ?? true);
 
-    .enemy {
-      position: absolute;
-      width: 40px;
-      height: 40px;
-      background: crimson;
-      border-radius: 50%;
-    }
+  // Upgrades
+  const [weapon, setWeapon] = useState(saveData?.weapon ?? 1);
+  const [speedUp, setSpeedUp] = useState(saveData?.speedUp ?? 0);
+  const [regen, setRegen] = useState(saveData?.regen ?? 0);
+  const [shield, setShield] = useState(saveData?.shield ?? 0);
+  const [rapid, setRapid] = useState(saveData?.rapid ?? 0);
+  const [bonusDamage, setBonusDamage] = useState(saveData?.bonusDamage ?? 0);
 
-    #screen {
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.85);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      font-size: 26px;
-      z-index: 20;
-      text-align: center;
-    }
+  const [materials, setMaterials] = useState(saveData?.materials ?? 0);
 
-    button {
-      padding: 12px 24px;
-      font-size: 18px;
-      cursor: pointer;
-      margin: 8px;
-    }
-  </style>
-</head>
-<body>
+  // Game States
+  const [event, setEvent] = useState(null);
+  const [eventText, setEventText] = useState("");
+  const [homeBase, setHomeBase] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(saveData?.tutorialDone ? false : true);
 
-<div id="hud">
-  ⭐ Score: <span id="score">0</span><br>
-  ⏱️ Time: <span id="time">30</span><br>
-  🏆 Level: <span id="level">1</span>
-</div>
+  const allies = useRef([]);
 
-<div id="player" class="skin-blue"></div>
-<div id="star">⭐</div>
-
-<div id="screen">
-  <div id="title">Star Runner Deluxe</div>
-  <div>
-    <p>Choose Skin:</p>
-    <button onclick="setSkin('skin-blue')">Blue</button>
-    <button onclick="setSkin('skin-red')">Red</button>
-    <button onclick="setSkin('skin-green')">Green</button>
-  </div>
-  <button onclick="startGame()">Start Game</button>
-</div>
-
-<audio id="collectSound" src="https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg"></audio>
-<audio id="hitSound" src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg"></audio>
-
-<script>
-  const player = document.getElementById("player");
-  const star = document.getElementById("star");
-  const scoreText = document.getElementById("score");
-  const timeText = document.getElementById("time");
-  const levelText = document.getElementById("level");
-  const screen = document.getElementById("screen");
-
-  const collectSound = document.getElementById("collectSound");
-  const hitSound = document.getElementById("hitSound");
-
-  let x = 100, y = 100;
-  let score = 0;
-  let time = 30;
-  let level = 1;
-  let speed = 10;
-  let gameRunning = false;
-  let enemies = [];
-
-  function setSkin(skin) {
-    player.className = skin;
-  }
-
-  function randomPos(el, size = 40) {
-    el.style.left = Math.random() * (window.innerWidth - size) + "px";
-    el.style.top = Math.random() * (window.innerHeight - size) + "px";
-  }
-
-  function spawnEnemies() {
-    enemies.forEach(e => e.remove());
-    enemies = [];
-
-    for (let i = 0; i < level; i++) {
-      const enemy = document.createElement("div");
-      enemy.className = "enemy";
-      randomPos(enemy);
-      document.body.appendChild(enemy);
-      enemies.push(enemy);
-    }
-  }
-
-  function startGame() {
-    score = 0;
-    time = 30;
-    level = 1;
-    speed = 10;
-    gameRunning = true;
-
-    scoreText.textContent = score;
-    timeText.textContent = time;
-    levelText.textContent = level;
-
-    screen.style.display = "none";
-    randomPos(star);
-    spawnEnemies();
-
-    const timer = setInterval(() => {
-      if (!gameRunning) return clearInterval(timer);
-      time--;
-      timeText.textContent = time;
-      if (time <= 0) endGame();
-    }, 1000);
-  }
-
-  function nextLevel() {
-    level++;
-    speed += 2;
-    time = 30;
-    levelText.textContent = level;
-    timeText.textContent = time;
-    spawnEnemies();
-  }
-
-  function endGame() {
-    gameRunning = false;
-    enemies.forEach(e => e.remove());
-    enemies = [];
-    screen.style.display = "flex";
-    document.getElementById("title").innerHTML = `Game Over<br>Score: ${score}<br>Level Reached: ${level}`;
-  }
-
-  document.addEventListener("keydown", e => {
-    if (!gameRunning) return;
-
-    if (e.key === "ArrowRight") x += speed;
-    if (e.key === "ArrowLeft") x -= speed;
-    if (e.key === "ArrowDown") y += speed;
-    if (e.key === "ArrowUp") y -= speed;
-
-    player.style.left = x + "px";
-    player.style.top = y + "px";
-
-    checkCollisions();
+  const player = useRef({
+    x: saveData?.x ?? 200,
+    y: saveData?.y ?? 200,
+    size: 20,
+    baseSpeed: 3,
+    cooldown: 0,
   });
 
-  function checkCollisions() {
-    const p = player.getBoundingClientRect();
-    const s = star.getBoundingClientRect();
+  const enemies = useRef([]);
+  const bullets = useRef([]);
+  const boss = useRef(null);
+  const keys = useRef({});
 
-    if (p.left < s.right && p.right > s.left && p.top < s.bottom && p.bottom > s.top) {
-      score++;
-      collectSound.play();
-      scoreText.textContent = score;
-      randomPos(star);
-      if (score % 5 === 0) nextLevel();
-    }
+  /* ---------------- AUTO SAVE ---------------- */
 
-    enemies.forEach(enemy => {
-      const e = enemy.getBoundingClientRect();
-      if (p.left < e.right && p.right > e.left && p.top < e.bottom && p.bottom > e.top) {
-        hitSound.play();
-        endGame();
+  useEffect(() => {
+    const data = {
+      health,
+      maxHealth,
+      score,
+      level,
+      day,
+      weapon,
+      speedUp,
+      regen,
+      shield,
+      rapid,
+      bonusDamage,
+      materials,
+      tutorialDone: !showTutorial,
+      x: player.current.x,
+      y: player.current.y,
+    };
+
+    saveGame(data);
+  }, [
+    health,
+    maxHealth,
+    score,
+    level,
+    day,
+    weapon,
+    speedUp,
+    regen,
+    shield,
+    rapid,
+    bonusDamage,
+    materials,
+    showTutorial,
+  ]);
+
+  /* ---------------- GAME ---------------- */
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+
+    /* ---------------- SPAWN ---------------- */
+
+    const spawnEnemy = () => {
+      enemies.current.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        size: 18 + level * 2,
+        speed: 1 + level * 0.25,
+        hp: 25 + level * 6,
+      });
+    };
+
+    const spawnBoss = () => {
+      boss.current = {
+        x: canvas.width / 2,
+        y: 60,
+        size: 55,
+        speed: 1.2,
+        hp: 400 + level * 120,
+        maxHp: 400 + level * 120,
+      };
+    };
+
+    const spawnAlly = () => {
+      allies.current.push({
+        x: player.current.x + Math.random() * 40 - 20,
+        y: player.current.y + Math.random() * 40 - 20,
+        size: 14,
+        cooldown: 0,
+        level: 1,
+      });
+    };
+
+    /* ---------------- EVENTS ---------------- */
+
+    const triggerEvent = () => {
+      if (Math.random() < 0.5) {
+        setEvent("angel");
+        const buffs = [
+          () => setWeapon((w) => w + 1),
+          () => setSpeedUp((s) => s + 1),
+          () => setRegen((r) => r + 1),
+          () => setShield((s) => s + 1),
+          () => setRapid((r) => r + 1),
+        ];
+        buffs[Math.floor(Math.random() * buffs.length)]();
+        setEventText("Angel blessed you ✨");
+      } else {
+        setEvent("demon");
+        setHealth((h) => Math.max(1, h - 10));
+        setBonusDamage((d) => d + 0.01);
+        setEventText("Demonic crystal absorbed 😈");
       }
-    });
-  }
 
-  star.onclick = () => {
-    if (!gameRunning) return;
-    score += 2;
-    collectSound.play();
-    scoreText.textContent = score;
-    randomPos(star);
-  };
-</script>
+      setTimeout(() => {
+        setEvent(null);
+        setEventText("");
+        setHomeBase(true);
+      }, 2500);
+    };
 
-</body>
-</html>
+    /* ---------------- INPUT ---------------- */
+
+    const handleKeyDown = (e) => {
+      keys.current[e.key] = true;
+
+      // Tutorial close
+      if (showTutorial && e.key === "Enter") {
+        setShowTutorial(false);
+        return;
+      }
+
+      // Home base
+      if (homeBase) {
+        if (e.key === "n") setHomeBase(false);
+        if (e.key === "a" && materials >= 30) {
+          setMaterials((m) => m - 30);
+          spawnAlly();
+        }
+        return;
+      }
+
+      // Shoot
+      if (e.key === " " && player.current.cooldown <= 0 && !event) {
+        bullets.current.push({
+          x: player.current.x,
+          y: player.current.y,
+          dy: -7 - rapid,
+          dmg: 6 * weapon * (1 + bonusDamage),
+        });
+        player.current.cooldown = Math.max(5, 25 - rapid * 3);
+      }
+    };
+
+    const handleKeyUp = (e) => {
+      keys.current[e.key] = false;
+    };
+
+    /* MOBILE TOUCH */
+
+    const handleTouch = (e) => {
+      const t = e.touches[0];
+      const rect = canvas.getBoundingClientRect();
+      const x = t.clientX - rect.left;
+      const y = t.clientY - rect.top;
+
+      player.current.x = x;
+      player.current.y = y;
+
+      if (player.current.cooldown <= 0) {
+        bullets.current.push({
+          x,
+          y,
+          dy: -7 - rapid,
+          dmg: 6 * weapon * (1 + bonusDamage),
+        });
+        player.current.cooldown = 20;
+      }
+    };
+
+    canvas.addEventListener("touchmove", handleTouch);
+    canvas.addEventListener("touchstart", handleTouch);
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+
+    /* ---------------- UPDATE ---------------- */
+
+    const update = () => {
+      if (gameOver || event || homeBase || showTutorial) return;
+
+      if (regen > 0 && score % 60 === 0) {
+        setHealth((h) => Math.min(maxHealth, h + regen));
+      }
+
+      player.current.cooldown--;
+
+      const speed = player.current.baseSpeed + speedUp * 0.6;
+
+      if (keys.current["w"]) player.current.y -= speed;
+      if (keys.current["s"]) player.current.y += speed;
+      if (keys.current["a"]) player.current.x -= speed;
+      if (keys.current["d"]) player.current.x += speed;
+
+      /* Allies */
+      allies.current.forEach((al) => {
+        const dx = player.current.x - al.x;
+        const dy = player.current.y - al.y;
+        al.x += dx * 0.05;
+        al.y += dy * 0.05;
+
+        al.cooldown--;
+
+        if (al.cooldown <= 0 && enemies.current.length) {
+          const t = enemies.current[0];
+          bullets.current.push({
+            x: al.x,
+            y: al.y,
+            dy: -6,
+            dmg: 3 * al.level,
+          });
+          al.cooldown = 60;
+        }
+      });
+
+      /* Enemies */
+      enemies.current.forEach((enemy) => {
+        const dx = player.current.x - enemy.x;
+        const dy = player.current.y - enemy.y;
+        const dist = Math.hypot(dx, dy);
+
+        enemy.x += (dx / dist) * enemy.speed;
+        enemy.y += (dy / dist) * enemy.speed;
+
+        if (dist < enemy.size + player.current.size) {
+          setHealth((h) => h - 0.5);
+        }
+      });
+
+      /* Boss */
+      if (boss.current) {
+        const dx = player.current.x - boss.current.x;
+        const dy = player.current.y - boss.current.y;
+        const dist = Math.hypot(dx, dy);
+
+        boss.current.x += (dx / dist) * boss.current.speed;
+        boss.current.y += (dy / dist) * boss.current.speed;
+
+        if (dist < boss.current.size + player.current.size) {
+          setHealth((h) => h - 1);
+        }
+
+        if (boss.current.hp <= 0) {
+          boss.current = null;
+          setLevel((l) => l + 1);
+          setMaterials((m) => m + 40);
+          triggerEvent();
+        }
+      }
+
+      /* Bullets */
+      bullets.current.forEach((b) => (b.y += b.dy));
+
+      bullets.current.forEach((b) => {
+        enemies.current.forEach((e) => {
+          if (Math.hypot(b.x - e.x, b.y - e.y) < e.size) {
+            e.hp -= b.dmg;
+            b.dead = true;
+          }
+        });
+
+        if (boss.current) {
+          if (Math.hypot(b.x - boss.current.x, b.y - boss.current.y) < boss.current.size) {
+            boss.current.hp -= b.dmg;
+            b.dead = true;
+          }
+        }
+      });
+
+      enemies.current = enemies.current.filter((e) => {
+        if (e.hp <= 0) {
+          setMaterials((m) => m + 3);
+          return false;
+        }
+        return true;
+      });
+
+      bullets.current = bullets.current.filter((b) => !b.dead && b.y > 0);
+
+      if (score % 1800 === 0 && score > 0 && !boss.current) spawnBoss();
+
+      if (health <= 0) setGameOver(true);
+
+      setScore((s) => s + 1);
+    };
+
+    /* ---------------- DRAW ---------------- */
+
+    const draw = () => {
+      ctx.clearRect(0, 0, 400, 400);
+
+      /* Tutorial */
+      if (showTutorial) {
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, 400, 400);
+
+        ctx.fillStyle = "#fff";
+        ctx.font = "16px Arial";
+        ctx.fillText("WELCOME TIME TRAVELER", 90, 60);
+        ctx.font = "12px Arial";
+        ctx.fillText("Move: WASD / Touch", 110, 110);
+        ctx.fillText("Shoot: Space / Tap", 110, 140);
+        ctx.fillText("Survive Cavemen", 130, 170);
+        ctx.fillText("Beat Bosses", 135, 200);
+        ctx.fillText("Hire Allies at Base (A)", 95, 230);
+        ctx.fillText("Press ENTER", 140, 300);
+        return;
+      }
+
+      /* Home Base */
+      if (homeBase) {
+        ctx.fillStyle = "#1c1917";
+        ctx.fillRect(0, 0, 400, 400);
+
+        ctx.fillStyle = "#fde68a";
+        ctx.font = "22px Arial";
+        ctx.fillText("HOME BASE", 135, 60);
+
+        ctx.fillStyle = "#fff";
+        ctx.font = "13px Arial";
+        ctx.fillText("A - Hire Ally (30 Mat)", 100, 120);
+        ctx.fillText("N - Next Level", 130, 150);
+        ctx.fillText(`Allies: ${allies.current.length}`, 140, 190);
+        ctx.fillText(`Materials: ${materials}`, 130, 220);
+        return;
+      }
+
+      /* World */
+      ctx.fillStyle = day ? "#c2b280" : "#0f172a";
+      ctx.fillRect(0, 0, 400, 400);
+
+      /* Player */
+      ctx.fillStyle = "#2563eb";
+      ctx.beginPath();
+      ctx.arc(player.current.x, player.current.y, 20, 0, Math.PI * 2);
+      ctx.fill();
+
+      /* Allies */
+      allies.current.forEach((a) => {
+        ctx.fillStyle = "#22c55e";
+        ctx.beginPath();
+        ctx.arc(a.x, a.y, a.size, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      /* Enemies */
+      enemies.current.forEach((e) => {
+        ctx.fillStyle = "#7c2d12";
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      /* Boss */
+      if (boss.current) {
+        ctx.fillStyle = "#991b1b";
+        ctx.beginPath();
+        ctx.arc(boss.current.x, boss.current.y, boss.current.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      /* Bullets */
+      bullets.current.forEach((b) => {
+        ctx.fillStyle = "#facc15";
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      /* UI */
+      ctx.fillStyle = "#000";
+      ctx.font = "12px Arial";
+      ctx.fillText(`HP: ${Math.floor(health)}/${maxHealth}`, 10, 16);
+      ctx.fillText(`Lvl: ${level}`, 10, 32);
+      ctx.fillText(`Mat: ${materials}`, 10, 48);
+      ctx.fillText(`Allies: ${allies.current.length}`, 10, 64);
+
+      if (gameOver) {
+        ctx.fillStyle = "rgba(0,0,0,0.7)";
+        ctx.fillRect(0, 0, 400, 400);
+        ctx.fillStyle = "#fff";
+        ctx.font = "26px Arial";
+        ctx.fillText("YOU DIED", 135, 200);
+      }
+    };
+
+    /* ---------------- LOOP ---------------- */
+
+    let lastSpawn = 0;
+
+    const loop = (time) => {
+      update();
+      draw();
+
+      if (time - lastSpawn > 1300 && !event && !homeBase && !showTutorial) {
+        spawnEnemy();
+        lastSpawn = time;
+      }
+
+      requestAnimationFrame(loop);
+    };
+
+    requestAnimationFrame(loop);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      canvas.removeEventListener("touchmove", handleTouch);
+      canvas.removeEventListener("touchstart", handleTouch);
+    };
+  }, [
+    health,
+    gameOver,
+    score,
+    level,
+    materials,
+    weapon,
+    day,
+    speedUp,
+    regen,
+    shield,
+    rapid,
+    maxHealth,
+    bonusDamage,
+    event,
+    homeBase,
+    showTutorial,
+  ]);
+
+  return (
+    <div className="min-h-screen bg-stone-900 flex flex-col items-center justify-center text-white p-4">
+      <h1 className="text-3xl font-bold mb-1">⏳ Time Survival: OGA BOGA</h1>
+      <p className="mb-2 text-xs text-gray-300 text-center">
+        Allies • Tutorial • Mobile Ready
+      </p>
+
+      <canvas
+        ref={canvasRef}
+        width={400}
+        height={400}
+        className="border-4 border-stone-600 rounded-2xl shadow-lg touch-none"
+      />
+
+      <div className="mt-3 text-[11px] text-gray-300 space-y-1 text-center">
+        <p>PC: WASD + Space</p>
+        <p>Mobile: Drag + Tap</p>
+        <p>Base: A=Ally N=Next</p>
+      </div>
+    </div>
+  );
+}
