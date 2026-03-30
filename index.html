@@ -2,110 +2,136 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>VOID_SENTINEL_FIXED</title>
+    <title>VOID_SENTINEL: ALLIES</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
         canvas { image-rendering: pixelated; width: 100vw; height: 100vh; }
-        #ui { position: absolute; top: 20px; left: 20px; color: #ff0055; text-shadow: 0 0 15px #ff0055; z-index: 10; }
-        #boss-ui { position: absolute; top: 20px; width: 100%; display: none; flex-direction: column; align-items: center; z-index: 20; }
-        .boss-bar { width: 60%; height: 20px; border: 2px solid #ff0055; }
-        #boss-hp { width: 100%; height: 100%; background: #ff0055; }
+        #ui { position: absolute; top: 20px; left: 20px; color: #00f2ff; text-shadow: 0 0 10px #00f2ff; z-index: 10; pointer-events: none; }
+        #shop {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(0, 0, 20, 0.95); border: 2px solid #00f2ff; padding: 20px;
+            display: none; flex-direction: column; color: white; z-index: 200; width: 320px;
+        }
+        .shop-item { padding: 10px; border: 1px solid #444; margin: 5px 0; cursor: pointer; display: flex; justify-content: space-between; }
+        .shop-item:hover { background: #00f2ff; color: black; }
     </style>
 </head>
 <body>
 
 <div id="ui">
-    <div style="font-size: 24px;">DATA_PURGED: <span id="score">0</span></div>
-    <div style="width: 200px; height: 8px; border: 1px solid #00f2ff; margin-top: 5px;">
-        <div id="hp-bar" style="width: 100%; height: 100%; background: #00f2ff;"></div>
+    <div style="font-size: 22px; font-weight: bold;">CREDITS: 💰<span id="gold">0</span></div>
+    <div style="font-size: 14px; color: #ff0055;">DRONE_STATUS: <span id="drone-level">INACTIVE</span></div>
+    <div style="width: 200px; height: 10px; border: 2px solid #00f2ff; margin-top: 5px; background: #001122;">
+        <div id="hp-bar" style="width: 100%; height: 100%; background: #00f2ff; box-shadow: 0 0 10px #00f2ff;"></div>
     </div>
+    <div style="font-size: 10px; margin-top: 10px; color: #fff;">[P] OPEN BLACK MARKET</div>
 </div>
 
-<div id="boss-ui">
-    <div style="color:#00f2ff; font-size: 32px;">!!! SENTINEL_DETECTED !!!</div>
-    <div class="boss-bar"><div id="boss-hp"></div></div>
+<div id="shop">
+    <h2 style="color: #00f2ff; margin-top: 0; text-align: center;">VOID_TRADER</h2>
+    <div class="shop-item" onclick="buy('drone', 100)"><span>Sentinel Ally</span> <span>💰100</span></div>
+    <div class="shop-item" onclick="buy('omega', 400)"><span>OMEGA BEAM</span> <span>💰400</span></div>
+    <div class="shop-item" onclick="buy('hp', 25)"><span>Repair Kit</span> <span>💰25</span></div>
+    <button onclick="toggleShop()" style="margin-top: 15px; background: transparent; color: #00f2ff; border: 1px solid #00f2ff; cursor: pointer; padding: 5px;">BACK_TO_VOID [P]</button>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
 <script>
-    // --- EMERGENCY STABLE BUILD ---
-    let score = 0, hp = 100, isGameOver = false, bossActive = false, bossHP = 100;
-    
+    let gold = 0, hp = 100, isGameOver = false, paused = false;
+    let droneActive = false, score = 0;
+
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x050005, 0.1);
-    
+    scene.fog = new THREE.FogExp2(0x020005, 0.07);
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ antialias: false });
-    renderer.setPixelRatio(0.5);
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(0.6); renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
-    // Character Creator
-    function createTex(color) {
-        const can = document.createElement('canvas'); can.width = 32; can.height = 32;
-        const ctx = can.getContext('2d');
-        ctx.fillStyle = color; ctx.fillRect(8, 8, 16, 24);
-        const tex = new THREE.CanvasTexture(can); tex.magFilter = THREE.NearestFilter; return tex;
-    }
+    // --- TEXTURE LOADING ---
+    const loader = new THREE.TextureLoader();
+    const enemyTex = loader.load('');
+    const allyTex = loader.load('');
+    
+    // Player
+    const player = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0x00f2ff }));
+    player.position.y = 1.2; scene.add(player);
 
-    const player = new THREE.Sprite(new THREE.SpriteMaterial({ map: createTex('#00f2ff') }));
-    player.position.y = 1; scene.add(player);
+    // Ally Drone
+    const drone = new THREE.Sprite(new THREE.SpriteMaterial({ map: allyTex }));
+    drone.scale.set(1.5, 1.5, 1);
+    drone.visible = false;
+    scene.add(drone);
 
     const enemies = [];
-    const enemyMat = new THREE.SpriteMaterial({ map: createTex('#ff0055') });
-    const bossMat = new THREE.SpriteMaterial({ map: createTex('#ff0055') });
-    let boss = null;
-
-    const pulseRing = new THREE.Mesh(new THREE.TorusGeometry(1, 0.1, 16, 100), new THREE.MeshBasicMaterial({ color: 0x00f2ff, transparent: true }));
+    const pulseRing = new THREE.Mesh(new THREE.TorusGeometry(1, 0.08, 16, 64), new THREE.MeshBasicMaterial({ color: 0x00f2ff, transparent: true }));
     pulseRing.rotation.x = Math.PI/2; scene.add(pulseRing);
-    scene.add(new THREE.GridHelper(1000, 100, 0x440022, 0x050005));
+    scene.add(new THREE.GridHelper(1000, 80, 0x00f2ff, 0x050005));
 
     const keys = {};
-    window.onkeydown = (e) => { 
-        keys[e.code] = true; 
-        if(e.code === 'Space') {
-            pulseRing.position.copy(player.position); pulseRing.scale.set(1,1,1); pulseRing.material.opacity = 1;
-            enemies.forEach(en => { if(player.position.distanceTo(en.position) < 10) en.dead = true; });
-            if(boss && player.position.distanceTo(boss.position) < 15) {
-                bossHP -= 20;
-                document.getElementById('boss-hp').style.width = bossHP + '%';
-                if(bossHP <= 0) { scene.remove(boss); boss = null; bossActive = false; document.getElementById('boss-ui').style.display='none'; score += 500; }
-            }
-        }
-    };
+    window.onkeydown = (e) => { if(e.code === 'KeyP') toggleShop(); if(!paused) { keys[e.code] = true; if(e.code === 'Space') fire(); } };
     window.onkeyup = (e) => keys[e.code] = false;
 
-    function spawn() {
-        if(score >= 500 && !bossActive && !boss) {
-            bossActive = true; boss = new THREE.Sprite(bossMat); boss.scale.set(10, 15, 1);
-            boss.position.set(player.position.x, 7.5, player.position.z - 30);
-            scene.add(boss); document.getElementById('boss-ui').style.display='flex';
+    function toggleShop() { paused = !paused; document.getElementById('shop').style.display = paused ? 'flex' : 'none'; }
+
+    function buy(type, cost) {
+        if(gold >= cost) {
+            gold -= cost; updateUI();
+            if(type === 'drone') { droneActive = true; drone.visible = true; document.getElementById('drone-level').innerText = "ONLINE"; }
+            if(type === 'hp') hp = Math.min(100, hp + 50);
         }
-        const en = new THREE.Sprite(enemyMat);
-        const a = Math.random() * 6.28;
-        en.position.set(player.position.x + Math.cos(a)*25, 1, player.position.z + Math.sin(a)*25);
-        scene.add(en); enemies.push(en);
-        setTimeout(spawn, bossActive ? 600 : 1500);
+    }
+
+    function fire() {
+        pulseRing.position.copy(player.position); pulseRing.scale.set(1,1,1); pulseRing.material.opacity = 1;
+        enemies.forEach(en => { if(player.position.distanceTo(en.position) < 12) { en.dead = true; gold += 10; score += 20; } });
+        updateUI();
+    }
+
+    function updateUI() {
+        document.getElementById('gold').innerText = gold;
+        document.getElementById('hp-bar').style.width = hp + '%';
+    }
+
+    function spawn() {
+        if(!paused && !isGameOver) {
+            const en = new THREE.Sprite(new THREE.SpriteMaterial({ map: enemyTex }));
+            en.scale.set(2, 2, 1);
+            const a = Math.random() * 6.28;
+            en.position.set(player.position.x + Math.cos(a)*35, 1.2, player.position.z + Math.sin(a)*35);
+            scene.add(en); enemies.push(en);
+        }
+        setTimeout(spawn, 1500);
     }
     spawn();
 
     function animate() {
         requestAnimationFrame(animate);
-        const s = keys['ShiftLeft'] ? 0.25 : 0.15;
+        if(paused || isGameOver) return;
+
+        const s = keys['ShiftLeft'] ? 0.3 : 0.18;
         if(keys['KeyW']) player.position.z -= s; if(keys['KeyS']) player.position.z += s;
         if(keys['KeyA']) player.position.x -= s; if(keys['KeyD']) player.position.x += s;
 
+        // Ally Logic
+        if(droneActive) {
+            const t = Date.now() * 0.003;
+            drone.position.set(player.position.x + Math.cos(t)*3, 2 + Math.sin(t*0.5), player.position.z + Math.sin(t)*3);
+            // Auto-Zap nearest enemy
+            enemies.forEach(en => {
+                if(drone.position.distanceTo(en.position) < 6) { en.dead = true; gold += 5; }
+            });
+        }
+
         enemies.forEach((en, i) => {
-            en.position.add(player.position.clone().sub(en.position).normalize().multiplyScalar(0.08));
-            if(player.position.distanceTo(en.position) < 1.2) { hp -= 0.2; document.getElementById('hp-bar').style.width = hp+'%'; }
-            if(en.dead) { scene.remove(en); enemies.splice(i,1); score += 10; document.getElementById('score').innerText = score; }
+            en.position.add(player.position.clone().sub(en.position).normalize().multiplyScalar(0.1));
+            if(player.position.distanceTo(en.position) < 1.8) { hp -= 0.5; updateUI(); if(hp <= 0) isGameOver = true; }
+            if(en.dead) { scene.remove(en); enemies.splice(i,1); }
         });
 
-        if(boss) boss.position.add(player.position.clone().sub(boss.position).normalize().multiplyScalar(0.03));
-        if(pulseRing.material.opacity > 0) { pulseRing.scale.multiplyScalar(1.1); pulseRing.material.opacity -= 0.05; }
+        if(pulseRing.material.opacity > 0) { pulseRing.scale.multiplyScalar(1.2); pulseRing.material.opacity -= 0.04; }
 
-        camera.position.lerp(new THREE.Vector3(player.position.x, 12, player.position.z + 12), 0.1);
+        camera.position.lerp(new THREE.Vector3(player.position.x, 15, player.position.z + 18), 0.08);
         camera.lookAt(player.position);
         renderer.render(scene, camera);
     }
