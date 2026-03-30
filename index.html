@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VOID_SENTINEL_PROTOCOL</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
+        canvas { image-rendering: pixelated; width: 100vw; height: 100vh; }
+        
+        #ui { position: absolute; top: 20px; left: 20px; color: #ff0055; text-shadow: 0 0 15px #ff0055; z-index: 10; pointer-events: none; }
+        #boss-ui { position: absolute; top: 20px; width: 100%; display: none; flex-direction: column; align-items: center; z-index: 20; }
+        .boss-bar { width: 60%; height: 20px; border: 2px solid #ff0055; box-shadow: 0 0 20px #ff0055; }
+        #boss-hp { width: 100%; height: 100%; background: #ff0055; transition: width 0.3s; }
+        
+        #game-over {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(40, 0, 0, 0.95); color: white;
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 100;
+        }
+        .glitch-text { animation: glitch 0.2s infinite; color: #00f2ff; font-weight: bold; }
+        @keyframes glitch { 
+            0% { transform: translate(2px,0); } 
+            50% { transform: translate(-2px,0); color: #ff0055; }
+            100% { transform: translate(0,0); }
+        }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <div style="font-size: 24px;">DATA_PURGED: <span id="score">0</span></div>
+    <div style="width: 200px; height: 8px; border: 1px solid #00f2ff; margin-top: 5px;">
+        <div id="hp-bar" style="width: 100%; height: 100%; background: #00f2ff;"></div>
+    </div>
+</div>
+
+<div id="boss-ui">
+    <div class="glitch-text" style="font-size: 32px; margin-bottom: 10px;">!!! VOID_SENTINEL_DETECTED !!!</div>
+    <div class="boss-bar"><div id="boss-hp"></div></div>
+</div>
+
+<div id="game-over">
+    <h1 style="font-size: 60px; color: #ff0055;">VOID_CONSUMED_YOU</h1>
+    <button onclick="location.reload()" style="background: #ff0055; border: none; color: white; padding: 15px 40px; cursor: pointer; font-family: inherit;">RE-INITIALIZE</button>
+</div>
+
+<script type="importmap">
+    { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+</script>
+
+<script type="module">
+    import * as THREE from 'three';
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+    // --- SETUP ---
+    let score = 0, hp = 100, isGameOver = false, bossActive = false, bossHP = 100;
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    renderer.setPixelRatio(0.5); renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 2.5, 0.4, 0.8);
+    composer.addPass(bloom);
+
+    // --- TEXTURES ---
+    const createTex = (c1, c2, boss = false) => {
+        const can = document.createElement('canvas'); can.width = boss ? 64 : 32; can.height = boss ? 64 : 32;
+        const ctx = can.getContext('2d');
+        ctx.fillStyle = c1; ctx.fillRect(0, 0, can.width, can.height);
+        ctx.fillStyle = c2; ctx.fillRect(can.width*0.2, can.width*0.2, can.width*0.2, can.width*0.2);
+        ctx.fillRect(can.width*0.6, can.width*0.2, can.width*0.2, can.width*0.2);
+        const tex = new THREE.CanvasTexture(can); tex.magFilter = THREE.NearestFilter; return tex;
+    };
+
+    const player = new THREE.Sprite(new THREE.SpriteMaterial({ map: createTex('#00f2ff', '#fff') }));
+    player.position.y = 1; scene.add(player);
+
+    const enemies = [];
+    const enemyMat = new THREE.SpriteMaterial({ map: createTex('#ff0055', '#000') });
+    const bossMat = new THREE.SpriteMaterial({ map: createTex('#ff0055', '#fff', true) });
+    let boss = null;
+
+    const pulseRing = new THREE.Mesh(new THREE.TorusGeometry(1, 0.1, 16, 100), new THREE.MeshBasicMaterial({ color: 0x00f2ff, transparent: true }));
+    pulseRing.rotation.x = Math.PI/2; scene.add(pulseRing);
+
+    scene.add(new THREE.GridHelper(1000, 100, 0x440022, 0x110005));
+
+    // --- INPUT ---
+    const keys = {};
+    window.onkeydown = (e) => { keys[e.code] = true; if(e.code === 'Space' && !isGameOver) pulse(); };
+    window.onkeyup = (e) => keys[e.code] = false;
+
+    function pulse() {
+        pulseRing.position.copy(player.position); pulseRing.scale.set(1, 1, 1); pulseRing.material.opacity = 1;
+        shake = 0.8;
+        
+        enemies.forEach(en => {
+            if(player.position.distanceTo(en.position) < 12) {
+                en.dead = true; score += 10;
+                document.getElementById('score').innerText = score;
+            }
+        });
+
+        if(boss && player.position.distanceTo(boss.position) < 15) {
+            bossHP -= 10;
+            document.getElementById('boss-hp').style.width = bossHP + '%';
+            if(bossHP <= 0) {
+                scene.remove(boss); boss = null; bossActive = false;
+                document.getElementById('boss-ui').style.display = 'none';
+                score += 500;
+            }
+        }
+    }
+
+    function spawnBoss() {
+        bossActive = true; bossHP = 100;
+        document.getElementById('boss-hp').style.width = '100%';
+        document.getElementById('boss-ui').style.display = 'flex';
+        boss = new THREE.Sprite(bossMat);
+        boss.scale.set(10, 15, 1);
+        boss.position.set(player.position.x, 7.5, player.position.z - 30);
+        scene.add(boss);
+    }
+
+    let shake = 0;
+    function spawnEnemies() {
+        if(isGameOver) return;
+        if(!bossActive && score > 0 && score % 500 === 0) spawnBoss();
+        const en = new THREE.Sprite(enemyMat);
+        const a = Math.random() * 6.28;
+        en.position.set(player.position.x + Math.cos(a)*30, 1, player.position.z + Math.sin(a)*30);
+        scene.add(en); enemies.push(en);
+        setTimeout(spawnEnemies, bossActive ? 400 : 1500);
+    }
+    spawnEnemies();
+
+    function animate() {
+        if(isGameOver) return;
+        requestAnimationFrame(animate);
+
+        const moveSpeed = (keys['ShiftLeft'] ? 0.25 : 0.15);
+        if(keys['KeyW']) player.position.z -= moveSpeed; if(keys['KeyS']) player.position.z += moveSpeed;
+        if(keys['KeyA']) player.position.x -= moveSpeed; if(keys['KeyD']) player.position.x += moveSpeed;
+
+        enemies.forEach((en, i) => {
+            const d = player.position.clone().sub(en.position).normalize();
+            en.position.add(d.multiplyScalar(bossActive ? 0.12 : 0.08));
+            if(player.position.distanceTo(en.position) < 1.5) {
+                hp -= 0.4; document.getElementById('hp-bar').style.width = hp + '%';
+                if(hp <= 0) { isGameOver = true; document.getElementById('game-over').style.display = 'flex'; }
+            }
+            if(en.dead) { scene.remove(en); enemies.splice(i, 1); }
+        });
+
+        if(boss) {
+            const d = player.position.clone().sub(boss.position).normalize();
+            boss.position.add(d.multiplyScalar(0.03)); // Boss moves slow but is huge
+            shake = 0.2; // Constant boss rumble
+        }
+
+        if(pulseRing.material.opacity > 0) { pulseRing.scale.multiplyScalar(1.2); pulseRing.material.opacity -= 0.04; }
+
+        camera.position.lerp(new THREE.Vector3(player.position.x, 15, player.position.z + 15), 0.05);
+        if(shake > 0) { camera.position.x += (Math.random()-0.5)*shake; camera.position.y += (Math.random()-0.5)*shake; shake *= 0.9; }
+        camera.lookAt(player.position);
+
+        composer.render();
+    }
+    animate();
+</script>
+</body>
+</html>
